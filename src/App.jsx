@@ -1,5 +1,5 @@
-import BuildMap from "./BuildMap.jsx";
+import Map from "./Map.jsx"
 
 export default function App() {
-  return <BuildMap />;
+  return <Map />;
 }
