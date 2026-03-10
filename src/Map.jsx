@@ -1,44 +1,18 @@
 import { useEffect, useRef, useState } from "react";
+import { createRoot } from "react-dom/client";
 import { googleMapsLoader } from "./googleMapsLoader";
+import InfoWindowContent from "./InfoWindowContent";
 
 const mapContainerStyle = {
   width: "100%",
   height: "100vh",
 };
 
-const COLOR_MAP = {
-  "10%": {
-    bg: "#ef4444",
-    glow: "rgba(239, 68, 68, 0.35)",
-    label: "10%",
-  },
-  "50%": {
-    bg: "#f97316",
-    glow: "rgba(249, 115, 22, 0.35)",
-    label: "50%",
-  },
-  "75%": {
-    bg: "#eab308",
-    glow: "rgba(234, 179, 8, 0.35)",
-    label: "75%",
-  },
-};
-
-function escapeHtml(value) {
-  if (value == null) return "";
-  return String(value)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
 function getMarkerStyle(percentage) {
   const config = {
     "10%": { bg: "#ef4444", glow: "rgba(239, 68, 68, 0.20)" },
     "50%": { bg: "#f97316", glow: "rgba(249, 115, 22, 0.20)" },
-    "75%": { bg: "#22c55e", glow: "rgba(34, 197, 94, 0.20)" },
+    "75%": { bg: "#37ac62", glow: "rgba(34, 197, 94, 0.20)" },
   };
 
   return (
@@ -67,7 +41,6 @@ function createPinElement(markerData) {
   svg.style.transition = "transform 140ms ease, filter 140ms ease";
   svg.style.filter = `drop-shadow(0 2px 4px rgba(0,0,0,0.22)) drop-shadow(0 0 8px ${glow})`;
 
-  // Outer pin shape
   const pinShape = document.createElementNS("http://www.w3.org/2000/svg", "path");
   pinShape.setAttribute(
     "d",
@@ -77,7 +50,6 @@ function createPinElement(markerData) {
   pinShape.setAttribute("stroke", "#ffffff");
   pinShape.setAttribute("stroke-width", "2");
 
-  // Slight inner shape to make it feel custom, not stock
   const innerTint = document.createElementNS("http://www.w3.org/2000/svg", "path");
   innerTint.setAttribute(
     "d",
@@ -85,7 +57,6 @@ function createPinElement(markerData) {
   );
   innerTint.setAttribute("fill", "rgba(255,255,255,0.08)");
 
-  // White center dot
   const centerDot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
   centerDot.setAttribute("cx", "15");
   centerDot.setAttribute("cy", "13.8");
@@ -93,7 +64,6 @@ function createPinElement(markerData) {
   centerDot.setAttribute("fill", "#ffffff");
   centerDot.setAttribute("opacity", "0.98");
 
-  // Thin ring around the white dot for a more custom feel
   const centerRing = document.createElementNS("http://www.w3.org/2000/svg", "circle");
   centerRing.setAttribute("cx", "15");
   centerRing.setAttribute("cy", "13.8");
@@ -122,46 +92,13 @@ function createPinElement(markerData) {
   return pin;
 }
 
-function getInfoWindowContent(markerData) {
-  const { bg } = getMarkerStyle(markerData.percentage);
-
-  return `
-    <div style="max-width:260px; padding:4px 2px; font-family:Arial,sans-serif;">
-      <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:10px;">
-        <div style="font-size:16px; font-weight:700; color:#111827; line-height:1.2;">
-          ${escapeHtml(markerData.name)}
-        </div>
-        <span style="
-          background:${bg};
-          color:white;
-          font-size:12px;
-          font-weight:800;
-          padding:5px 10px;
-          border-radius:999px;
-          white-space:nowrap;
-        ">
-          ${escapeHtml(markerData.percentage)}
-        </span>
-      </div>
-
-      <div style="font-size:13px; color:#374151; margin-bottom:6px;">
-        <strong>Matched:</strong> ${escapeHtml(markerData.matchedName || "—")}
-      </div>
-
-      <div style="font-size:13px; color:#374151; line-height:1.4;">
-        <strong>Address:</strong><br />
-        ${escapeHtml(markerData.address || "—")}
-      </div>
-    </div>
-  `;
-}
-
 export default function Map() {
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const infoWindowRef = useRef(null);
   const markerInstancesRef = useRef([]);
   const mapClickListenerRef = useRef(null);
+  const infoWindowRootRef = useRef(null);
 
   const [markers, setMarkers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -181,6 +118,7 @@ export default function Map() {
         }
 
         const data = await response.json();
+
         if (!cancelled) {
           setMarkers(Array.isArray(data.markers) ? data.markers : []);
         }
@@ -213,10 +151,11 @@ export default function Map() {
 
         if (cancelled || !window.google?.maps) return;
 
-        const { Map } = await window.google.maps.importLibrary("maps");
+        const { Map: GoogleMap, InfoWindow } =
+          await window.google.maps.importLibrary("maps");
         await window.google.maps.importLibrary("marker");
 
-        const map = new Map(mapRef.current, {
+        const map = new GoogleMap(mapRef.current, {
           center: { lat: 39.7392, lng: -104.9903 },
           zoom: 10,
           mapId: "DEMO_MAP_ID",
@@ -237,7 +176,7 @@ export default function Map() {
         });
 
         mapInstanceRef.current = map;
-        infoWindowRef.current = new window.google.maps.InfoWindow();
+        infoWindowRef.current = new InfoWindow();
       } catch (err) {
         if (!cancelled) {
           setError(err.message || "Failed to initialize map");
@@ -269,6 +208,11 @@ export default function Map() {
       mapClickListenerRef.current = null;
     }
 
+    if (infoWindowRootRef.current) {
+      infoWindowRootRef.current.unmount();
+      infoWindowRootRef.current = null;
+    }
+
     if (!markers.length) {
       infoWindow.close();
       return;
@@ -295,7 +239,18 @@ export default function Map() {
         });
 
       advancedMarker.addListener("click", () => {
-        infoWindow.setContent(getInfoWindowContent(markerData));
+        if (infoWindowRootRef.current) {
+          infoWindowRootRef.current.unmount();
+          infoWindowRootRef.current = null;
+        }
+
+        const container = document.createElement("div");
+        const root = createRoot(container);
+        infoWindowRootRef.current = root;
+
+        root.render(<InfoWindowContent markerData={markerData} />);
+
+        infoWindow.setContent(container);
         infoWindow.open({
           map,
           anchor: advancedMarker,
@@ -308,6 +263,11 @@ export default function Map() {
 
     mapClickListenerRef.current = map.addListener("click", () => {
       infoWindow.close();
+
+      if (infoWindowRootRef.current) {
+        infoWindowRootRef.current.unmount();
+        infoWindowRootRef.current = null;
+      }
     });
 
     if (!bounds.isEmpty()) {
@@ -328,6 +288,11 @@ export default function Map() {
       markerInstancesRef.current = [];
 
       infoWindow.close();
+
+      if (infoWindowRootRef.current) {
+        infoWindowRootRef.current.unmount();
+        infoWindowRootRef.current = null;
+      }
 
       if (mapClickListenerRef.current) {
         window.google.maps.event.removeListener(mapClickListenerRef.current);

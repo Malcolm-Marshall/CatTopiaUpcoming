@@ -1,11 +1,12 @@
 import express from "express";
 import dotenv from "dotenv";
 import { google } from "googleapis";
+import { fetchBoardCardsWithLists } from "./server/trello.js";
+import { findBestMatch, normalizeProjectName } from "./server/matching.js";
 
 dotenv.config();
 
 const app = express();
-// eslint-disable-next-line no-undef
 const PORT = process.env.PORT || 3000;
 
 const {
@@ -15,8 +16,8 @@ const {
   GOOGLE_PRIVATE_KEY,
   GEOCODE_API_KEY,
   SHEET_A_RANGE = "Sheet1!B:E",
-  SHEET_B_RANGE = "Sheet1!A:D"
-// eslint-disable-next-line no-undef
+  SHEET_B_RANGE = "Sheet1!A:D",
+  TRELLO_BOARD_ID,
 } = process.env;
 
 if (
@@ -31,13 +32,13 @@ if (
 
 const auth = new google.auth.JWT({
   email: GOOGLE_SERVICE_ACCOUNT_EMAIL,
-  key: GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n"),
-  scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"]
+  key: GOOGLE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
+  scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
 });
 
 const sheets = google.sheets({
   version: "v4",
-  auth
+  auth,
 });
 
 const geocodeCache = new Map();
@@ -51,21 +52,8 @@ function meetsCriteria(value) {
   return ALLOWED_PERCENTAGES.has(normalizePercentage(value));
 }
 
-function normalizeName(name) {
-  return String(name ?? "")
-    .toLowerCase()
-    .trim()
-    .replace(/\(.*?\)/g, "")
-    .replace(/&/g, "and")
-    .replace(/[^\w\s]/g, " ")
-    .replace(/\bsaint\b/g, "st")
-    .replace(/\bthe\b/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 function tokenizeName(name) {
-  return normalizeName(name).split(" ").filter(Boolean);
+  return normalizeProjectName(name).split(" ").filter(Boolean);
 }
 
 function tokenOverlapScore(nameA, nameB) {
@@ -87,26 +75,26 @@ function tokenOverlapScore(nameA, nameB) {
 }
 
 function findBestLooseMatch(inputName, candidates) {
-  const normalizedInput = normalizeName(inputName);
+  const normalizedInput = normalizeProjectName(inputName);
 
   if (!normalizedInput) {
     return {
       match: null,
-      reason: "Name empty after normalization"
+      reason: "Name empty after normalization",
     };
   }
 
   for (const candidate of candidates) {
-    if (normalizeName(candidate.name) === normalizedInput) {
+    if (normalizeProjectName(candidate.name) === normalizedInput) {
       return {
         match: candidate,
-        reason: "Exact normalized match"
+        reason: "Exact normalized match",
       };
     }
   }
 
   for (const candidate of candidates) {
-    const normalizedCandidate = normalizeName(candidate.name);
+    const normalizedCandidate = normalizeProjectName(candidate.name);
 
     if (
       normalizedCandidate.includes(normalizedInput) ||
@@ -114,7 +102,7 @@ function findBestLooseMatch(inputName, candidates) {
     ) {
       return {
         match: candidate,
-        reason: "Partial contains match"
+        reason: "Partial contains match",
       };
     }
   }
@@ -134,20 +122,20 @@ function findBestLooseMatch(inputName, candidates) {
   if (!bestCandidate) {
     return {
       match: null,
-      reason: "No token overlap with any candidate"
+      reason: "No token overlap with any candidate",
     };
   }
 
   if (bestScore < 0.6) {
     return {
       match: null,
-      reason: `Best candidate "${bestCandidate.name}" score too low (${bestScore.toFixed(2)})`
+      reason: `Best candidate "${bestCandidate.name}" score too low (${bestScore.toFixed(2)})`,
     };
   }
 
   return {
     match: bestCandidate,
-    reason: `Fuzzy token match score ${bestScore.toFixed(2)}`
+    reason: `Fuzzy token match score ${bestScore.toFixed(2)}`,
   };
 }
 
@@ -176,7 +164,7 @@ async function geocodeAddress(address) {
     console.warn(
       `[GEOCODE FAILED] "${normalized}" - status: ${data.status} - message: ${
         data.error_message || "No error message returned"
-      }`
+      }`,
     );
     geocodeCache.set(normalized, null);
     return null;
@@ -187,7 +175,7 @@ async function geocodeAddress(address) {
   const result = {
     lat: location.lat,
     lng: location.lng,
-    formattedAddress: data.results[0].formatted_address
+    formattedAddress: data.results[0].formatted_address,
   };
 
   geocodeCache.set(normalized, result);
@@ -199,12 +187,12 @@ app.get("/api/locations", async (req, res) => {
     const [sheetAResponse, sheetBResponse] = await Promise.all([
       sheets.spreadsheets.values.get({
         spreadsheetId: SHEET_A_SPREADSHEET_ID,
-        range: SHEET_A_RANGE
+        range: SHEET_A_RANGE,
       }),
       sheets.spreadsheets.values.get({
         spreadsheetId: SHEET_B_SPREADSHEET_ID,
-        range: SHEET_B_RANGE
-      })
+        range: SHEET_B_RANGE,
+      }),
     ]);
 
     const sheetARows = sheetAResponse.data.values || [];
@@ -220,7 +208,7 @@ app.get("/api/locations", async (req, res) => {
 
       sheetBCandidates.push({
         name,
-        address
+        address,
       });
     }
 
@@ -235,7 +223,7 @@ app.get("/api/locations", async (req, res) => {
 
       if (!meetsCriteria(percentage)) {
         console.warn(
-          `[FILTERED] "${originalName}" skipped because percentage = "${percentage}"`
+          `[FILTERED] "${originalName}" skipped because percentage = "${percentage}"`,
         );
         continue;
       }
@@ -244,27 +232,27 @@ app.get("/api/locations", async (req, res) => {
 
       if (!result.match) {
         console.warn(
-          `[UNMATCHED] "${originalName}" - reason: ${result.reason}`
+          `[UNMATCHED] "${originalName}" - reason: ${result.reason}`,
         );
 
         unmatchedNames.push({
           name: originalName,
           percentage,
-          reason: result.reason
+          reason: result.reason,
         });
 
         continue;
       }
 
       console.log(
-        `[MATCHED] "${originalName}" -> "${result.match.name}" (${result.reason})`
+        `[MATCHED] "${originalName}" -> "${result.match.name}" (${result.reason})`,
       );
 
       joinedRows.push({
         name: originalName,
         matchedName: result.match.name,
         percentage,
-        address: result.match.address
+        address: result.match.address,
       });
     }
 
@@ -275,7 +263,7 @@ app.get("/api/locations", async (req, res) => {
 
       if (!geo) {
         console.warn(
-          `[SKIPPED AFTER MATCH] "${row.name}" matched "${row.matchedName}" but geocoding failed`
+          `[SKIPPED AFTER MATCH] "${row.name}" matched "${row.matchedName}" but geocoding failed`,
         );
         continue;
       }
@@ -286,27 +274,95 @@ app.get("/api/locations", async (req, res) => {
         percentage: row.percentage,
         address: geo.formattedAddress,
         lat: geo.lat,
-        lng: geo.lng
+        lng: geo.lng,
       });
     }
 
+    let trelloCards = [];
+    if (TRELLO_BOARD_ID) {
+      trelloCards = await fetchBoardCardsWithLists(TRELLO_BOARD_ID);
+      console.log(`[TRELLO] Fetched ${trelloCards.length} cards`);
+    } else {
+      console.warn("[TRELLO] No TRELLO_BOARD_ID set, skipping Trello merge");
+    }
+
+    const usedCardIds = new Set();
+
+    const enrichedMarkers = markers.map((marker) => {
+      const availableCards = trelloCards
+        .filter((card) => !usedCardIds.has(card.cardId))
+        .map((card) => ({
+          ...card,
+          name: card.cardName,
+        }));
+
+      const { match, score } = findBestMatch(
+        marker.matchedName || marker.name,
+        availableCards,
+        0.6,
+      );
+
+      if (!match) {
+        return {
+          ...marker,
+          trello: null,
+        };
+      }
+
+      usedCardIds.add(match.cardId);
+
+      return {
+        ...marker,
+        trello: {
+          cardId: match.cardId,
+          cardName: match.cardName,
+          list: match.list,
+          labels: match.labels,
+          due: match.due,
+          url: match.url,
+          shortLink: match.shortLink,
+          closed: match.closed,
+          matchScore: Number(score.toFixed(2)),
+        },
+      };
+    });
+
+    console.log(
+      "trello matched:",
+      enrichedMarkers.filter((m) => m.trello).length,
+    );
+    
+    const unmatchedTrelloCards = trelloCards
+      .filter((card) => !usedCardIds.has(card.cardId))
+      .map((card) => ({
+        cardId: card.cardId,
+        cardName: card.cardName,
+        list: card.list,
+        due: card.due,
+        url: card.url,
+      }));
+
     res.json({
-      markers,
+      markers: enrichedMarkers,
       unmatchedNames,
+      unmatchedTrelloCards,
       counts: {
         sheetARows: sheetARows.length,
         sheetBCandidates: sheetBCandidates.length,
         matched: joinedRows.length,
         geocoded: markers.length,
-        unmatched: unmatchedNames.length
-      }
+        unmatched: unmatchedNames.length,
+        trelloCards: trelloCards.length,
+        trelloMatched: enrichedMarkers.filter((marker) => marker.trello).length,
+        trelloUnmatched: unmatchedTrelloCards.length,
+      },
     });
   } catch (error) {
     console.error("API error:", error);
 
     res.status(500).json({
       error: "Failed to load locations",
-      details: error.message
+      details: error.message,
     });
   }
 });
