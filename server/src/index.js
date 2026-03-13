@@ -1,13 +1,44 @@
 import express from "express";
 import dotenv from "dotenv";
+import cors from "cors";
 import { google } from "googleapis";
-import { fetchBoardCardsWithLists } from "./server/trello.js";
-import { findBestMatch, normalizeProjectName } from "./server/matching.js";
+import { fetchBoardCardsWithLists } from "./trello.js";
+import { findBestMatch, normalizeProjectName, scoreNameMatch } from "./matching.js";
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+app.use(express.json());
+
+const allowedOrigins = [
+  process.env.CLIENT_URL,
+  "http://localhost:5173"
+].filter(Boolean);
+
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+      callback(new Error("Not allowed by CORS"));
+    }
+  })
+);
+
+app.get("/api/health", (req, res) => {
+  res.json({ ok: true });
+});
+
+// Example:
+// import { getSheetsData } from "./sheets.js";
+// import { getTrelloData } from "./trello.js";
+// import { matchProjects } from "./matching.js";
+
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`Server listening on port ${PORT}`);
+});
 
 const {
   SHEET_A_SPREADSHEET_ID,
