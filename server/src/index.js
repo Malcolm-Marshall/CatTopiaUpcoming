@@ -9,6 +9,9 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+let locationsCache = null;
+let locationsCacheTimestamp = 0;
+const LOCATIONS_CACHE_TTL_MS = 60 * 1000; // 60 seconds
 
 app.use(express.json());
 
@@ -220,6 +223,18 @@ async function geocodeAddress(address) {
 
 app.get("/api/locations", async (req, res) => {
   try {
+    const now = Date.now();
+
+    if (
+      locationsCache &&
+      now - locationsCacheTimestamp < LOCATIONS_CACHE_TTL_MS
+    ) {
+      console.log("[CACHE] Returning cached /api/locations response");
+      return res.json(locationsCache);
+    }
+
+    console.log("[CACHE] Cache miss, rebuilding /api/locations response");
+
     const [sheetAResponse, sheetBResponse] = await Promise.all([
       sheets.spreadsheets.values.get({
         spreadsheetId: SHEET_A_SPREADSHEET_ID,
@@ -259,7 +274,7 @@ app.get("/api/locations", async (req, res) => {
 
       if (!meetsCriteria(percentage)) {
         console.warn(
-          `[FILTERED] "${originalName}" skipped because percentage = "${percentage}"`,
+          `[FILTERED] "${originalName}" skipped because percentage = "${percentage}"`
         );
         continue;
       }
@@ -268,7 +283,7 @@ app.get("/api/locations", async (req, res) => {
 
       if (!result.match) {
         console.warn(
-          `[UNMATCHED] "${originalName}" - reason: ${result.reason}`,
+          `[UNMATCHED] "${originalName}" - reason: ${result.reason}`
         );
 
         unmatchedNames.push({
@@ -281,7 +296,7 @@ app.get("/api/locations", async (req, res) => {
       }
 
       console.log(
-        `[MATCHED] "${originalName}" -> "${result.match.name}" (${result.reason})`,
+        `[MATCHED] "${originalName}" -> "${result.match.name}" (${result.reason})`
       );
 
       joinedRows.push({
@@ -299,7 +314,7 @@ app.get("/api/locations", async (req, res) => {
 
       if (!geo) {
         console.warn(
-          `[SKIPPED AFTER MATCH] "${row.name}" matched "${row.matchedName}" but geocoding failed`,
+          `[SKIPPED AFTER MATCH] "${row.name}" matched "${row.matchedName}" but geocoding failed`
         );
         continue;
       }
@@ -335,7 +350,7 @@ app.get("/api/locations", async (req, res) => {
       const { match, score } = findBestMatch(
         marker.matchedName || marker.name,
         availableCards,
-        0.6,
+        0.6
       );
 
       if (!match) {
@@ -365,9 +380,9 @@ app.get("/api/locations", async (req, res) => {
 
     console.log(
       "trello matched:",
-      enrichedMarkers.filter((m) => m.trello).length,
+      enrichedMarkers.filter((m) => m.trello).length
     );
-    
+
     const unmatchedTrelloCards = trelloCards
       .filter((card) => !usedCardIds.has(card.cardId))
       .map((card) => ({
@@ -378,7 +393,7 @@ app.get("/api/locations", async (req, res) => {
         url: card.url,
       }));
 
-    res.json({
+    const result = {
       markers: enrichedMarkers,
       unmatchedNames,
       unmatchedTrelloCards,
@@ -392,7 +407,12 @@ app.get("/api/locations", async (req, res) => {
         trelloMatched: enrichedMarkers.filter((marker) => marker.trello).length,
         trelloUnmatched: unmatchedTrelloCards.length,
       },
-    });
+    };
+
+    locationsCache = result;
+    locationsCacheTimestamp = Date.now();
+
+    res.json(result);
   } catch (error) {
     console.error("API error:", error);
 
@@ -401,4 +421,14 @@ app.get("/api/locations", async (req, res) => {
       details: error.message,
     });
   }
+}
+);
+app.post("/api/refresh-locations", (req, res) => {
+  locationsCache = null;
+  locationsCacheTimestamp = 0;
+
+  console.log("[CACHE] /api/locations cache cleared manually");
+
+  res.json({ ok: true });
 });
+
