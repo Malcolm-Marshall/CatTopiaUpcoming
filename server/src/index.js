@@ -14,16 +14,24 @@ app.use(express.json());
 
 const allowedOrigins = [
   process.env.CLIENT_URL,
-  "http://localhost:5173"
+  "http://localhost:5173",
 ].filter(Boolean);
 
 app.use(
   cors({
     origin(origin, callback) {
       if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin)) return callback(null, true);
-      callback(new Error("Not allowed by CORS"));
-    }
+
+      const normalizedOrigin = origin.replace(/\/$/, "");
+      const normalizedAllowedOrigins = allowedOrigins.map((o) => o.replace(/\/$/, ""));
+
+      if (normalizedAllowedOrigins.includes(normalizedOrigin)) {
+        return callback(null, true);
+      }
+
+      console.error("Blocked by CORS:", origin);
+      return callback(new Error(`Not allowed by CORS: ${origin}`));
+    },
   })
 );
 
