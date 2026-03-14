@@ -41,30 +41,42 @@ function createPinElement(markerData) {
   svg.style.transition = "transform 140ms ease, filter 140ms ease";
   svg.style.filter = `drop-shadow(0 2px 4px rgba(0,0,0,0.22)) drop-shadow(0 0 8px ${glow})`;
 
-  const pinShape = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  const pinShape = document.createElementNS(
+    "http://www.w3.org/2000/svg",
+    "path",
+  );
   pinShape.setAttribute(
     "d",
-    "M15 1.5C8.1 1.5 2.5 7 2.5 13.8C2.5 22.9 15 40 15 40C15 40 27.5 22.9 27.5 13.8C27.5 7 21.9 1.5 15 1.5Z"
+    "M15 1.5C8.1 1.5 2.5 7 2.5 13.8C2.5 22.9 15 40 15 40C15 40 27.5 22.9 27.5 13.8C27.5 7 21.9 1.5 15 1.5Z",
   );
   pinShape.setAttribute("fill", bg);
   pinShape.setAttribute("stroke", "#ffffff");
   pinShape.setAttribute("stroke-width", "2");
 
-  const innerTint = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  const innerTint = document.createElementNS(
+    "http://www.w3.org/2000/svg",
+    "path",
+  );
   innerTint.setAttribute(
     "d",
-    "M15 4.5C9.7 4.5 5.5 8.8 5.5 14C5.5 20.8 15 34.2 15 34.2C15 34.2 24.5 20.8 24.5 14C24.5 8.8 20.3 4.5 15 4.5Z"
+    "M15 4.5C9.7 4.5 5.5 8.8 5.5 14C5.5 20.8 15 34.2 15 34.2C15 34.2 24.5 20.8 24.5 14C24.5 8.8 20.3 4.5 15 4.5Z",
   );
   innerTint.setAttribute("fill", "rgba(255,255,255,0.08)");
 
-  const centerDot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+  const centerDot = document.createElementNS(
+    "http://www.w3.org/2000/svg",
+    "circle",
+  );
   centerDot.setAttribute("cx", "15");
   centerDot.setAttribute("cy", "13.8");
   centerDot.setAttribute("r", "4.7");
   centerDot.setAttribute("fill", "#ffffff");
   centerDot.setAttribute("opacity", "0.98");
 
-  const centerRing = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+  const centerRing = document.createElementNS(
+    "http://www.w3.org/2000/svg",
+    "circle",
+  );
   centerRing.setAttribute("cx", "15");
   centerRing.setAttribute("cy", "13.8");
   centerRing.setAttribute("r", "5.6");
@@ -112,9 +124,14 @@ export default function Map() {
         setLoading(true);
         setError("");
 
-        const response = await fetch("/api/locations");
+        const API_URL = import.meta.env.VITE_API_URL;
+        const response = await fetch(`${API_URL}/api/locations`);
+
         if (!response.ok) {
-          throw new Error(`Failed to fetch markers: ${response.status}`);
+          const text = await response.text();
+          throw new Error(
+            `Failed to fetch markers: ${response.status} ${text}`,
+          );
         }
 
         const data = await response.json();
