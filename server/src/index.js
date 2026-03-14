@@ -31,10 +31,7 @@ app.get("/api/health", (req, res) => {
   res.json({ ok: true });
 });
 
-// Example:
-// import { getSheetsData } from "./sheets.js";
-// import { getTrelloData } from "./trello.js";
-// import { matchProjects } from "./matching.js";
+
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server listening on port ${PORT}`);

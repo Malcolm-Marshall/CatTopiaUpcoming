@@ -23,3 +23,13 @@ dist-ssr
 *.sln
 *.sw?
 package-lock.json
+
+.vite
+.env
+.env.*
+!.env.example
+client/node_modules
+client/dist
+server/node_modules
+client/.env
+server/.env
